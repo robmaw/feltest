@@ -2,6 +2,7 @@ namespace App
 
 open Feliz
 open Feliz.Router
+open Feliz.Bulma
 
 type Components =
     /// <summary>
@@ -10,6 +11,15 @@ type Components =
     /// </summary>
     [<ReactComponent>]
     static member HelloWorld() = Html.h1 "Hello World"
+
+    [<ReactComponent>]
+    static member ButtonWorld() = 
+        Bulma.button.a [
+            color.isDanger
+            prop.onClick (fun _ -> Fable.Core.JS.eval "alert('Hello Feliz.Bulma')" |> ignore)
+            prop.text "Amazing button, ain't it?"
+        ]
+
 
     /// <summary>
     /// A stateful React component that maintains a counter
@@ -39,6 +49,7 @@ type Components =
                 | [ ] -> Html.h1 "Index"
                 | [ "hello" ] -> Components.HelloWorld()
                 | [ "counter" ] -> Components.Counter()
+                | [ "button" ] -> Components.ButtonWorld()
                 | otherwise -> Html.h1 "Not found"
             ]
         ]

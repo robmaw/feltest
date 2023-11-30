@@ -2,12 +2,15 @@
   "private": true,
   "scripts": {
     "start": "dotnet tool restore && dotnet fable watch src --runFast vite",
+    "debug": "dotnet tool restore && dotnet fable watch src --sourceMaps --runFast vite",
     "build": "dotnet tool restore && dotnet fable src --run vite build",
     "clean": "dotnet fable clean src --yes"
   },
   "dependencies": {
+    "bulma": "^0.9.4",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "use-sync-external-store": "^1.2.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^3.1.0",
