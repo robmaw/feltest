@@ -216,8 +216,5 @@ let LayoutTest () =
       ]
     ]
 
-
-
-
 let root = ReactDOM.createRoot (document.getElementById "feliz-app")
 root.render (LayoutTest())
