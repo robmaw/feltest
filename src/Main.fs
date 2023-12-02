@@ -5,19 +5,89 @@ open Feliz.UseElmish
 open Feliz.Bulma
 open Elmish
 open Browser.Dom
+open Fable.SimpleHttp
+open Thoth.Json
+
+type AsyncOperationStatus<'t> =
+    | Started
+    | Finished of 't
+
+type Fact = {
+    Title:string
+    Summary:string
+    Image:string
+}
 
 type Msg =
   | Increment
   | Decrement
+  | GetFact of AsyncOperationStatus<Result<Fact, string>>
+  | FetchData
+  | FetchDataSuccess of string
+  | FetchDataFailure of exn
+  | OnError of System.Exception
 
-type State = { Count: int }
+type State =  {
+  Count: int
+  Fact: Deferred.Deferred<Result<Fact, string>>
+  Loading:bool
+  Result: string option
+}
 
-let init () = { Count = 0 }, Cmd.none
+let runAfter (ms: int) callback =
+  async {
+    do! Async.Sleep ms
+    do callback()
+  }
+  |> Async.StartImmediate
+
+let placeholderFact = {
+    Title = "Loading..."
+    Summary = "Loading..."
+    Image = "https://bulma.io/images/placeholders/1280x960.png"
+}
+
+let init () = 
+  { 
+      Count = 0
+      Fact = Deferred.HasNotStartedYet
+      Loading = false
+      Result = None
+  }, Cmd.none
 
 let update msg state =
   match msg with
   | Increment -> { state with Count = state.Count + 1 }, Cmd.none
   | Decrement -> { state with Count = state.Count - 1 }, Cmd.none
+  | GetFact Started when state.Fact = Deferred.InProgress -> state, Cmd.none
+  | GetFact Started -> 
+      let nextState = { state with Fact = Deferred.InProgress; Loading=true }
+      let getFact() = async 
+                        {
+                          let! (statusCode, rawFact) = Http.get "https://radar.thoughtworks.com/api/publish/facts"
+                          match statusCode with
+                          | 200 -> 
+                              let factResult = (Decode.Auto.fromString<Fact> rawFact)
+                              return (Finished (factResult))
+                          | _ ->
+                              return (Finished (Error rawFact))
+                        } 
+      nextState, Cmd.OfAsync.either getFact () GetFact OnError
+  | FetchData ->
+      state, Cmd.OfAsync.attempt (fun _ -> Http.get "/api/data") () FetchDataFailure
+  | FetchDataSuccess data ->
+      state, Cmd.none
+  | FetchDataFailure error ->
+      state, Cmd.none
+  | GetFact (Finished (Ok fact)) -> 
+      let nextState = { state with Fact = Deferred.Resolved (Ok fact); Loading=false }
+      nextState, Cmd.none
+  | GetFact (Finished (Error error)) -> 
+      let nextState = { state with Fact = Deferred.Resolved(Error error); Loading=false ; Result = Some error}
+      nextState, Cmd.none
+  | OnError ex->
+      Fable.Core.JS.console.error $"Error: {ex.Message}"
+      state, Cmd.none
 
 [<ReactComponent>]
 let Counter () =
@@ -31,28 +101,62 @@ let Counter () =
 
 [<ReactComponent>]
 let FactCard () =
+ let state, dispatch = React.useElmish (init, update, [||])
+ let progress =
+    match state.Fact with
+    | Deferred.InProgress -> 
+        Bulma.progress [
+            Bulma.color.isPrimary
+            prop.max 100
+        ]
+    | _ -> Bulma.content []
+
+ 
  Bulma.card [
+    //cardHeader
     Bulma.cardHeader [
+        prop.role "banner"
         prop.children [
-            Bulma.cardHeaderTitle.p "Radar Facts"
+            Bulma.container [
+              Bulma.columns [
+                columns.isVCentered
+                prop.children [
+                  Bulma.column [
+                    column.isOneThird
+                    prop.children [
+                      Bulma.cardHeaderTitle.p "Radar Facts"
+                    ]
+                  ]
+                  Bulma.column [
+                    progress
+                  ]
+                ]
+              ]
+            ]
         ]
-        ]
-    Bulma.cardContent [
-      Bulma.columns [
-        Bulma.column[
-          Bulma.cardContent [
-            Bulma.title[Html.h3 "Active electronically scanned array"]
-            Bulma.block[Html.p "An active electronically scanned array (AESA) is a type of phased array antenna, which is a computer-controlled array antenna in which the beam of radio waves can be electronically steered to point in different directions without moving the antenna."]
-          ]
-        ]
-        Bulma.column[
-          Bulma.cardImage [
-            Bulma.image [
-              Bulma.image.isFullWidth
-              prop.children [
-                Html.img [
-                  prop.alt "Placeholder image"
-                  prop.src "https://upload.wikimedia.org/wikipedia/commons/5/59/3DELRR_long-range_radar_system.JPG"
+    ]
+    //cardContent
+    Html.main [
+      prop.role "main"
+      prop.children [
+        Bulma.cardContent [
+          Bulma.columns [
+            Bulma.column[
+              Bulma.cardContent [
+                Bulma.title[Html.h1 ($"{placeholderFact.Title} {state.Count}")]
+                Bulma.block[Html.p $"{placeholderFact.Summary}"]
+              ]
+            ]
+            Bulma.column[
+              Bulma.cardImage [
+                Bulma.image [
+                  Bulma.image.isFullWidth
+                  prop.children [
+                    Html.img [
+                      prop.alt "Placeholder image"
+                      prop.src placeholderFact.Image
+                    ]
+                  ]
                 ]
               ]
             ]
@@ -60,9 +164,16 @@ let FactCard () =
         ]
       ]
     ]
+    //cardFooter
     Bulma.cardFooter [
-        Bulma.cardFooterItem.a [
-            prop.text "Refresh"
+        Bulma.cardFooterItem.div [
+            prop.children[
+              Bulma.button.button
+                [ prop.text "Get Fact"
+                  prop.onClick (fun _ -> dispatch (GetFact Started))
+                  prop.disabled (Deferred.inProgress state.Fact) 
+                ]
+            ]
         ]
     ]
  ]
