@@ -19,120 +19,137 @@ type Fact = {
 }
 
 type Msg =
-  | Increment
-  | Decrement
   | GetFact of AsyncOperationStatus<Result<Fact, string>>
-  | FetchData
-  | FetchDataSuccess of string
-  | FetchDataFailure of exn
+  | ImageLoaded
+  | ImageError
   | OnError of System.Exception
 
 type State =  {
-  Count: int
   Fact: Deferred.Deferred<Result<Fact, string>>
-  Loading:bool
-  Result: string option
+  ImageLoading: Deferred.Deferred<bool>
 }
-
-let runAfter (ms: int) callback =
-  async {
-    do! Async.Sleep ms
-    do callback()
-  }
-  |> Async.StartImmediate
 
 let placeholderFact = {
     Title = "Loading..."
     Summary = "Loading..."
-    Image = "https://bulma.io/images/placeholders/1280x960.png"
+    Image = "./img/1280x960.png"
 }
 
 let init () = 
   { 
-      Count = 0
       Fact = Deferred.HasNotStartedYet
-      Loading = false
-      Result = None
+      ImageLoading = Deferred.HasNotStartedYet
   }, Cmd.none
 
 let update msg state =
   match msg with
-  | Increment -> { state with Count = state.Count + 1 }, Cmd.none
-  | Decrement -> { state with Count = state.Count - 1 }, Cmd.none
   | GetFact Started when state.Fact = Deferred.InProgress -> state, Cmd.none
   | GetFact Started -> 
-      let nextState = { state with Fact = Deferred.InProgress; Loading=true }
+      let nextState = { state with Fact = Deferred.InProgress; ImageLoading=Deferred.InProgress }
       let getFact() = async 
                         {
-                          let! (statusCode, rawFact) = Http.get "https://radar.thoughtworks.com/api/publish/facts"
+                          let! (statusCode, rawFact) = Http.get "http://127.0.0.1:8080"
                           match statusCode with
                           | 200 -> 
                               let factResult = (Decode.Auto.fromString<Fact> rawFact)
+                              match factResult with
+                              | Ok fact ->  Fable.Core.JS.console.log fact.Title
+                              | _ -> ()
                               return (Finished (factResult))
-                          | _ ->
-                              return (Finished (Error rawFact))
+                          | code ->
+                              return (Finished (Error $"Error: {code}"))
                         } 
       nextState, Cmd.OfAsync.either getFact () GetFact OnError
-  | FetchData ->
-      state, Cmd.OfAsync.attempt (fun _ -> Http.get "/api/data") () FetchDataFailure
-  | FetchDataSuccess data ->
-      state, Cmd.none
-  | FetchDataFailure error ->
-      state, Cmd.none
   | GetFact (Finished (Ok fact)) -> 
-      let nextState = { state with Fact = Deferred.Resolved (Ok fact); Loading=false }
+      let nextState = { state with Fact = Deferred.Resolved (Ok fact)}
       nextState, Cmd.none
   | GetFact (Finished (Error error)) -> 
-      let nextState = { state with Fact = Deferred.Resolved(Error error); Loading=false ; Result = Some error}
+      let err = $"Error: {error}"
+      let nextState = { state with Fact = Deferred.Resolved(Error error)}
+      Fable.Core.JS.console.log err
+      nextState, Cmd.none
+  | ImageLoaded ->
+      let nextState = { state with ImageLoading = Deferred.Resolved(true)}
+      nextState, Cmd.none
+  | ImageError ->
+      let nextState = { state with ImageLoading = Deferred.Resolved(false)}
       nextState, Cmd.none
   | OnError ex->
-      Fable.Core.JS.console.error $"Error: {ex.Message}"
-      state, Cmd.none
+      let error = $"Error: {ex.Message}"
+      Fable.Core.JS.console.log error
+      let nextState = { state with Fact = Deferred.Resolved(Error error)}
+      nextState, Cmd.none
 
-[<ReactComponent>]
-let Counter () =
-  let state, dispatch = React.useElmish (init, update, [||])
-
-  Html.div
-    [ Html.h1 state.Count
-      Html.button [ prop.text "Increment"; prop.onClick (fun _ -> dispatch Increment) ]
-
-      Html.button [ prop.text "Decrement"; prop.onClick (fun _ -> dispatch Decrement) ] ]
-
-[<ReactComponent>]
-let FactCard () =
- let state, dispatch = React.useElmish (init, update, [||])
- let progress =
+let progress state =
+  let progressBar = 
     match state.Fact with
-    | Deferred.InProgress -> 
+    | Deferred.InProgress -> Bulma.content[
         Bulma.progress [
             Bulma.color.isPrimary
             prop.max 100
         ]
+      ]
+    | Deferred.Resolved (Error error) -> Bulma.content [
+        Bulma.progress [
+            Bulma.color.isWarning
+            prop.max 100
+            prop.value 100
+        ]
+        Html.p error
+      ]
     | _ -> Bulma.content []
+  Bulma.content [
+    spacing.pr5
+    spacing.pt3
+    prop.children [
+      progressBar
+    ]
+  ]
 
- 
- Bulma.card [
+let resolveFact state =
+  match state.Fact with
+  | Deferred.Resolved (Ok fact) -> fact
+  | _ -> placeholderFact
+
+let resolveImage state =
+  match state.ImageLoading with
+  | Deferred.Resolved (true) -> (resolveFact state).Image
+  | Deferred.Resolved (false) -> placeholderFact.Image
+  | Deferred.InProgress -> placeholderFact.Image
+  | _ -> placeholderFact.Image
+
+[<ReactComponent>]
+let FactCard () =
+  let state, dispatch = React.useElmish (init, update, [||])
+  Bulma.card [
     //cardHeader
     Bulma.cardHeader [
         prop.role "banner"
         prop.children [
-            Bulma.container [
-              Bulma.columns [
-                columns.isVCentered
+          Bulma.container [
+            container.isFluid
+            helpers.isPaddingless
+            prop.children [
+              Bulma.columns[
                 prop.children [
                   Bulma.column [
-                    column.isOneThird
+                    column.isHalf
+                    helpers.isPulledLeft
                     prop.children [
-                      Bulma.cardHeaderTitle.p "Radar Facts"
+                      Bulma.cardHeaderTitle.div [
+                        prop.children [
+                          Html.p "Fact"
+                        ]
+                      ]
                     ]
                   ]
                   Bulma.column [
-                    progress
+                    column.isHalf                    
                   ]
                 ]
               ]
             ]
+          ]
         ]
     ]
     //cardContent
@@ -143,8 +160,11 @@ let FactCard () =
           Bulma.columns [
             Bulma.column[
               Bulma.cardContent [
-                Bulma.title[Html.h1 ($"{placeholderFact.Title} {state.Count}")]
-                Bulma.block[Html.p $"{placeholderFact.Summary}"]
+                spacing.pl0
+                prop.children[
+                  Bulma.title[Html.p (resolveFact state).Title]
+                  Bulma.block[Html.p (resolveFact state).Summary]
+                ]
               ]
             ]
             Bulma.column[
@@ -154,7 +174,11 @@ let FactCard () =
                   prop.children [
                     Html.img [
                       prop.alt "Placeholder image"
-                      prop.src placeholderFact.Image
+                      prop.src (resolveImage state)
+                      // prop.style [ style.display.none ]
+                      prop.onLoad (fun _ -> dispatch ImageLoaded)
+                      prop.onError (fun (_:Browser.Types.Event) -> dispatch ImageError)
+                      prop.onError (fun (_:Browser.Types.UIEvent) -> dispatch ImageError)
                     ]
                   ]
                 ]
@@ -173,37 +197,11 @@ let FactCard () =
                   prop.onClick (fun _ -> dispatch (GetFact Started))
                   prop.disabled (Deferred.inProgress state.Fact) 
                 ]
+              progress state
             ]
         ]
     ]
- ]
-
-
-[<ReactComponent>]
-let Card () =
-  Bulma.card
-    [ Bulma.cardImage
-        [ Bulma.image
-            [ Bulma.image.is4by3
-              prop.children
-                [ Html.img
-                    [ prop.alt "Placeholder image"
-                      prop.src "https://bulma.io/images/placeholders/1280x960.png" ] ] ] ]
-      Bulma.cardContent
-        [ Bulma.media
-              [ Bulma.mediaLeft
-                    [ Bulma.cardImage
-                          [ Bulma.image
-                                [ Bulma.image.is48x48
-                                  prop.children
-                                    [ Html.img
-                                        [ prop.alt "Placeholder image"
-                                          prop.src "https://bulma.io/images/placeholders/96x96.png" ] ] ] ] ]
-                Bulma.mediaContent
-                    [ Bulma.title.p [ Bulma.title.is4; prop.text "Feliz Bulma" ]
-                      Bulma.subtitle.p [ Bulma.title.is6; prop.text "@feliz.bulma" ] ] ]
-          Bulma.content "Lorem ipsum dolor sit ... nec iaculis mauris." ] ]
-
+  ]
 
 
 [<ReactComponent>]

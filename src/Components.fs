@@ -4,6 +4,7 @@ open Feliz
 open Feliz.Router
 open Feliz.Bulma
 
+
 type Components =
     /// <summary>
     /// The simplest possible React component.
