@@ -32,7 +32,7 @@ type State =  {
 let placeholderFact = {
     Title = "Loading..."
     Summary = "Loading..."
-    Image = "./img/1280x960.png"
+    Image = "./img/search.gif"
 }
 
 let init () = 
